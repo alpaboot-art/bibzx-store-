@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BIBZX Store - Toko Akun QRIS Otomatis</title>
+  <style>
+    body { background: #0a0c14; color: #fff; font-family: sans-serif; padding: 20px; text-align: center; }
+    h1 { color: #00f2fe; }
+    .grid { display: flex; flex-wrap: wrap; gap: 15px; justify-content: center; margin-top: 20px; }
+    .card { background: #121624; border: 1px solid #1e2640; border-radius: 10px; padding: 15px; width: 260px; text-align: left; }
+    .price { color: #00f2fe; font-weight: bold; font-size: 18px; margin: 10px 0; }
+    .btn { width: 100%; padding: 10px; background: #00f2fe; border: none; font-weight: bold; cursor: pointer; border-radius: 5px; }
+    .btn:disabled { background: #444; color: #888; }
+    .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.85); align-items: center; justify-content: center; }
+    .modal-box { background: #121624; padding: 20px; border-radius: 12px; border: 1px solid #00f2fe; max-width: 350px; width: 90%; }
+    .qr-img { width: 200px; height: 200px; background: #fff; padding: 10px; border-radius: 8px; margin: 15px 0; }
+    pre { background: #000; padding: 10px; color: #00f2fe; border-radius: 5px; white-space: pre-wrap; word-break: break-all; text-align: left; }
+  </style>
+</head>
+<body>
+
+  <h1>BIBZX STORE</h1>
+  <p>Beli Akun Otomatis via QRIS</p>
+
+  <div id="products" class="grid"></div>
+
+  <div id="modal" class="modal">
+    <div class="modal-box">
+      <h3 id="m-title"></h3>
+      <p id="m-price" style="color: #00f2fe; font-weight: bold; margin-top: 5px;"></p>
+      
+      <div id="qr-section">
+        <img id="qr-img" class="qr-img" src="" alt="QRIS">
+        <p style="font-size: 12px; color: #aaa;">Scan QRIS di atas dengan DANA/OVO/GoPay/Bank</p>
+        <p style="color: #f59e0b; margin-top: 10px; font-weight: bold;">Menunggu Pembayaran...</p>
+      </div>
+
+      <div id="account-section" style="display: none;">
+        <h3 style="color: #2ed573;">🎉 Pembayaran Berhasil!</h3>
+        <p style="font-size: 12px; margin: 10px 0;">Berikut data login akun kamu:</p>
+        <pre id="acc-data"></pre>
+      </div>
+
+      <button onclick="closeModal()" class="btn" style="background: #333; color: #fff; margin-top: 15px;">Tutup</button>
+    </div>
+  </div>
+
+  <script>
+    let pollTimer = null;
+
+    async function loadProducts() {
+      const res = await fetch('/api/products');
+      const data = await res.json();
+      const container = document.getElementById('products');
+      container.innerHTML = '';
+
+      if (data.length === 0) {
+        container.innerHTML = '<p style="color:#aaa;">Belum ada produk.</p>';
+        return;
+      }
+
+      data.forEach(p => {
+        const isSold = p.status === 'sold';
+        container.innerHTML += `
+          <div class="card">
+            <h3>${p.title}</h3>
+            <div class="price">Rp ${p.price.toLocaleString('id-ID')}</div>
+            <p style="font-size: 12px; color: #aaa;">${p.description || ''}</p>
+            <button class="btn" ${isSold ? 'disabled' : ''} onclick="buy(${p.id})">
+              ${isSold ? 'SOLD OUT' : 'Beli via QRIS'}
+            </button>
+          </div>
+        `;
+      });
+    }
+
+    async function buy(id) {
+      const res = await fetch('/api/orders/create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ productId: id })
+      });
+      const data = await res.json();
+      if (!data.success) return alert(data.error);
+
+      document.getElementById('m-title').innerText = data.title;
+      document.getElementById('m-price').innerText = `Rp ${data.amount.toLocaleString('id-ID')}`;
+      document.getElementById('qr-img').src = data.qrisUrl;
+      document.getElementById('qr-section').style.display = 'block';
+      document.getElementById('account-section').style.display = 'none';
+      document.getElementById('modal').style.display = 'flex';
+
+      pollTimer = setInterval(async () => {
+        const statusRes = await fetch(`/api/orders/${data.orderId}`);
+        const statusData = await statusRes.json();
+        if (statusData.status === 'PAID') {
+          clearInterval(pollTimer);
+          document.getElementById('qr-section').style.display = 'none';
+          document.getElementById('account-section').style.display = 'block';
+          document.getElementById('acc-data').innerText = statusData.accountData;
+          loadProducts();
+        }
+      }, 3000);
+    }
+
+    function closeModal() {
+      document.getElementById('modal').style.display = 'none';
+      if (pollTimer) clearInterval(pollTimer);
+    }
+
+    loadProducts();
+  </script>
+</body>
+  </html>
+  
